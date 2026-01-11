@@ -81,10 +81,16 @@ const App: React.FC = () => {
 
   const fetchPatients = async (clinicId: string) => {
     try {
+      // Phase D3.1: Fetch patients only for the current day
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayISO = today.toISOString();
+
       const { data: fetchedData, error: fetchError } = await supabase
         .from('patients')
         .select('*')
         .eq('clinic_id', clinicId)
+        .gte('created_at', todayISO)
         .order('created_at', { ascending: true });
 
       if (fetchError) throw fetchError;
@@ -102,6 +108,9 @@ const App: React.FC = () => {
       })) as Patient[];
 
       console.log('HYDRATION: Patients synced from Supabase:', mapped.length);
+      const completedCount = mapped.filter(p => p.status === 'COMPLETED').length;
+      console.log(`RETENTION CHECK: ${completedCount} completed patients retained in state.`);
+      
       setPatients(mapped);
     } catch (err) {
       console.error('Fetch patients failed:', err);
@@ -243,8 +252,8 @@ const App: React.FC = () => {
     }
   };
 
-  const updateStatus = (id: string, status: PatientStatus) => {
-    if (userRole === 'ADMIN') return;
+  const updateStatus = async (id: string, status: PatientStatus) => {
+    if (userRole === 'ADMIN' || !currentClinicId) return;
 
     let effectiveStatus = status;
 
@@ -257,37 +266,41 @@ const App: React.FC = () => {
          }
     }
 
-    let updatedPatients = patients.map(p => {
-      if (p.id === id) {
-        const updates: Partial<Patient> = { status: effectiveStatus };
-        if ((effectiveStatus === 'IN_QUEUE' || effectiveStatus === 'IN_TREATMENT') && !p.arrivalTime) {
-          updates.arrivalTime = new Date();
-          updates.waitTimeMinutes = 0;
-        }
-        return { ...p, ...updates };
+    try {
+      const updates: any = { status: effectiveStatus };
+      
+      // If moving to queue/treatment for first time, set arrival
+      const p = patients.find(pat => pat.id === id);
+      if (p && (effectiveStatus === 'IN_QUEUE' || effectiveStatus === 'IN_TREATMENT') && !p.arrivalTime) {
+        updates.arrival_time = new Date().toISOString();
+        updates.wait_time_minutes = 0;
       }
-      return p;
-    });
 
-    if (effectiveStatus === 'COMPLETED') {
-        if (doctorStatus === 'READY') {
-            const activePatient = updatedPatients.find(p => p.status === 'IN_TREATMENT' && p.id !== id);
-            
-            if (!activePatient) {
-                const queue = updatedPatients.filter(p => p.status === 'IN_QUEUE');
-                queue.sort((a, b) => b.waitTimeMinutes - a.waitTimeMinutes);
-                
-                if (queue.length > 0) {
-                    const nextPatient = queue[0];
-                    updatedPatients = updatedPatients.map(p => 
-                        p.id === nextPatient.id ? { ...p, status: 'IN_TREATMENT' } : p
-                    );
-                }
-            }
+      const { error } = await supabase
+        .from('patients')
+        .update(updates)
+        .eq('id', id);
+
+      if (error) throw error;
+
+      // Handle auto-seating logic if someone completed
+      if (effectiveStatus === 'COMPLETED' && doctorStatus === 'READY') {
+        const nextInLine = patients
+          .filter(pat => pat.status === 'IN_QUEUE' && pat.id !== id)
+          .sort((a, b) => (b.waitTimeMinutes || 0) - (a.waitTimeMinutes || 0))[0];
+        
+        if (nextInLine) {
+          await supabase
+            .from('patients')
+            .update({ status: 'IN_TREATMENT' })
+            .eq('id', nextInLine.id);
         }
-    }
+      }
 
-    setPatients(updatedPatients);
+      await fetchPatients(currentClinicId);
+    } catch (err) {
+      console.error("Status update failed:", err);
+    }
   };
 
   const toggleDoctorStatus = () => {
@@ -296,21 +309,15 @@ const App: React.FC = () => {
     setDoctorStatus(nextStatus);
     
     if (nextStatus === 'READY') {
-       setPatients(currentPatients => {
-            const chairOccupied = currentPatients.some(p => p.status === 'IN_TREATMENT');
-            if (!chairOccupied) {
-                const queue = currentPatients.filter(p => p.status === 'IN_QUEUE')
-                                           .sort((a, b) => b.waitTimeMinutes - a.waitTimeMinutes);
-                
-                if (queue.length > 0) {
-                    const nextId = queue[0].id;
-                    return currentPatients.map(p => 
-                        p.id === nextId ? { ...p, status: 'IN_TREATMENT' } : p
-                    );
-                }
-            }
-            return currentPatients;
-       });
+       const chairOccupied = patients.some(p => p.status === 'IN_TREATMENT');
+       if (!chairOccupied) {
+           const queue = patients.filter(p => p.status === 'IN_QUEUE')
+                                      .sort((a, b) => b.waitTimeMinutes - a.waitTimeMinutes);
+           
+           if (queue.length > 0) {
+               updateStatus(queue[0].id, 'IN_TREATMENT');
+           }
+       }
     }
   };
 

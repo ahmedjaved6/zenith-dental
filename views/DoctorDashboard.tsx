@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Clock, CheckCircle, MoreHorizontal, User, Play, Coffee, Zap, BarChart2, FileClock, Calendar, Loader2 } from 'lucide-react';
+import { Clock, CheckCircle, MoreHorizontal, User, Play, Coffee, Zap, BarChart2, FileClock, Calendar, Loader2, CheckCircle2 } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Patient, PatientStatus, DoctorStatus } from '../types';
@@ -24,7 +24,8 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
   currentClinicId
 }) => {
   const currentPatient = patients.find(p => p.status === 'IN_TREATMENT');
-  const waitingPatients = patients.filter(p => p.status === 'IN_QUEUE');
+  const waitingPatients = patients.filter(p => p.status === 'IN_QUEUE' || p.status === 'BOOKED');
+  const completedToday = patients.filter(p => p.status === 'COMPLETED');
   
   const [completingId, setCompletingId] = useState<string | null>(null);
   const [startingId, setStartingId] = useState<string | null>(null);
@@ -47,7 +48,7 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
     setTimeout(() => {
         onUpdateStatus(id, 'COMPLETED');
         setCompletingId(null);
-    }, 250);
+    }, 400);
   };
 
   const handleStartSession = (id: string) => {
@@ -56,7 +57,7 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
     setTimeout(() => {
         onUpdateStatus(id, 'IN_TREATMENT');
         setStartingId(null);
-    }, 200);
+    }, 300);
   };
 
   const renderCompleteButton = (isMobile: boolean) => (
@@ -76,8 +77,8 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
       >
         {completingId ? (
             <>
-                <CheckCircle size={24} className="mr-3" />
-                Completed!
+                <Loader2 size={24} className="mr-3 animate-spin" />
+                Updating Status...
             </>
         ) : (
             <>
@@ -286,7 +287,7 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
                           </div>
                           <h3 className="text-2xl font-semibold text-gray-400">Chair Empty</h3>
                           <p className="text-base mt-2 text-center text-gray-400 max-w-xs">
-                              {waitingPatients.length > 0 
+                              {waitingPatients.filter(p => p.status === 'IN_QUEUE').length > 0 
                                   ? "Select a patient from the queue to start." 
                                   : "No patients currently waiting."}
                           </p>
@@ -297,96 +298,140 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
             </section>
           </div>
 
-          {/* RIGHT COLUMN - QUEUE */}
-          <div className="lg:col-span-4 flex flex-col h-full pt-2">
-               <div className="flex items-center justify-between mb-8 px-2">
-              <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest">
-                  Up Next
-              </h2>
-              <span className="bg-gray-100 text-gray-600 font-bold py-0.5 px-2.5 rounded-full text-xs">{waitingPatients.length}</span>
-            </div>
+          {/* RIGHT COLUMN - QUEUE & COMPLETED */}
+          <div className="lg:col-span-4 flex flex-col h-full pt-2 gap-8">
             
-            <div className="flex-1 space-y-5 overflow-y-auto no-scrollbar pb-6 relative">
-               {/* Queue Break Overlay */}
-               {doctorStatus === 'ON_BREAK' && waitingPatients.length > 0 && (
-                  <div className="absolute inset-0 bg-white/60 backdrop-blur-[1px] z-10 rounded-xl flex items-center justify-center animate-fade-in">
-                      <div className="bg-white/90 px-4 py-3 rounded-xl shadow-sm border border-orange-100 text-orange-600 text-xs font-bold uppercase tracking-wider">
-                          Queue Paused
-                      </div>
-                  </div>
-              )}
+            {/* UP NEXT SECTION */}
+            <section>
+                <div className="flex items-center justify-between mb-8 px-2">
+                <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest">
+                    Up Next
+                </h2>
+                <span className="bg-gray-100 text-gray-600 font-bold py-0.5 px-2.5 rounded-full text-xs">
+                    {waitingPatients.filter(p => p.status === 'IN_QUEUE').length}
+                </span>
+                </div>
+                
+                <div className="space-y-5 max-h-[400px] overflow-y-auto no-scrollbar pb-2 relative">
+                {/* Queue Break Overlay */}
+                {doctorStatus === 'ON_BREAK' && waitingPatients.some(p => p.status === 'IN_QUEUE') && (
+                    <div className="absolute inset-0 bg-white/60 backdrop-blur-[1px] z-10 rounded-xl flex items-center justify-center animate-fade-in">
+                        <div className="bg-white/90 px-4 py-3 rounded-xl shadow-sm border border-orange-100 text-orange-600 text-xs font-bold uppercase tracking-wider">
+                            Queue Paused
+                        </div>
+                    </div>
+                )}
 
-              {waitingPatients.length > 0 ? (
-                waitingPatients.map((patient, index) => {
-                  const isStarting = startingId === patient.id;
-                  const canStart = !currentPatient && index === 0 && doctorStatus === 'READY';
-                  
-                  return (
-                      <Card 
-                      key={patient.id} 
-                      padding="p-5 sm:p-6" 
-                      className={`group transition-all duration-150 border-transparent hover:border-gray-200 cursor-pointer animate-slide-up ${
-                          canStart 
-                          ? 'ring-2 ring-blue-500/20 border-blue-500/30 bg-blue-50/30' 
-                          : 'bg-white'
-                      } ${isStarting ? 'scale-[0.98] opacity-80 bg-blue-50 ring-2 ring-blue-500' : 'hover:shadow-md'}`}
-                      onClick={() => canStart && !isStarting && handleStartSession(patient.id)}
-                      >
-                      <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-5">
-                          <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold text-lg transition-colors ${
-                              canStart 
-                              ? 'bg-blue-100 text-blue-600'
-                              : 'bg-gray-100 text-gray-500 group-hover:bg-gray-200'
-                          }`}>
-                              {isStarting ? <Loader2 size={20} className="animate-spin" /> : patient.name.charAt(0)}
-                          </div>
-                          <div>
-                              <h3 className={`font-medium text-lg leading-tight ${
-                                  canStart ? 'text-blue-900' : 'text-gray-900'
-                              }`}>
-                                  {formatName(patient.name)}
-                                  {patient.appointmentType === 'APPOINTMENT' && patient.scheduledTime && (
-                                     <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-500 align-middle border border-gray-200/50">
-                                       {patient.scheduledTime}
-                                     </span>
-                                  )}
-                              </h3>
-                              <p className="text-sm font-medium text-gray-500 mt-1.5">{patient.treatment}</p>
-                          </div>
-                          </div>
-                          
-                          {canStart && (
-                          <div className="flex items-center gap-2 text-blue-600">
-                              {isStarting ? (
-                                  <span className="text-[10px] font-semibold uppercase tracking-wider animate-pulse">Starting...</span>
-                              ) : (
-                                  <>
-                                      <span className="text-[10px] font-semibold uppercase tracking-wider">Start</span>
-                                      <Play size={20} fill="currentColor" />
-                                  </>
-                              )}
-                          </div>
-                          )}
-                      </div>
-                       <div className="mt-5 pt-3 border-t border-gray-50 flex items-center justify-between text-xs">
-                          <div className="flex items-center gap-2 text-gray-400 font-medium">
-                          <Clock size={14} />
-                          <span>{patient.waitTimeMinutes}m wait</span>
-                          </div>
-                          <span className={`px-2.5 py-1 rounded-md font-semibold text-[11px] uppercase tracking-wide ${patient.appointmentType === 'WALK_IN' ? 'bg-gray-100 text-gray-500' : 'bg-purple-50 text-purple-600'}`}>
-                          {patient.appointmentType === 'WALK_IN' ? 'Walk-in' : patient.scheduledTime || 'Appt'}
-                          </span>
-                      </div>
-                      </Card>
-                  );
-                })
-              ) : (
-                  <div className="text-center py-12 px-6 bg-white/50 rounded-2xl border border-dashed border-gray-200 animate-fade-in">
-                   <p className="text-gray-400 font-medium text-sm">No patients waiting</p>
-                 </div>
-              )}
-            </div>
+                {waitingPatients.filter(p => p.status === 'IN_QUEUE').length > 0 ? (
+                    waitingPatients.filter(p => p.status === 'IN_QUEUE').map((patient, index) => {
+                    const isStarting = startingId === patient.id;
+                    const canStart = !currentPatient && index === 0 && doctorStatus === 'READY';
+                    
+                    return (
+                        <Card 
+                        key={patient.id} 
+                        padding="p-5 sm:p-6" 
+                        className={`group transition-all duration-150 border-transparent hover:border-gray-200 cursor-pointer animate-slide-up ${
+                            canStart 
+                            ? 'ring-2 ring-blue-500/20 border-blue-500/30 bg-blue-50/30' 
+                            : 'bg-white'
+                        } ${isStarting ? 'scale-[0.98] opacity-80 bg-blue-50 ring-2 ring-blue-500' : 'hover:shadow-md'}`}
+                        onClick={() => canStart && !isStarting && handleStartSession(patient.id)}
+                        >
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-5">
+                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold text-lg transition-colors ${
+                                canStart 
+                                ? 'bg-blue-100 text-blue-600'
+                                : 'bg-gray-100 text-gray-500 group-hover:bg-gray-200'
+                            }`}>
+                                {isStarting ? <Loader2 size={20} className="animate-spin" /> : patient.name.charAt(0)}
+                            </div>
+                            <div>
+                                <h3 className={`font-medium text-lg leading-tight ${
+                                    canStart ? 'text-blue-900' : 'text-gray-900'
+                                }`}>
+                                    {formatName(patient.name)}
+                                    {patient.appointmentType === 'APPOINTMENT' && patient.scheduledTime && (
+                                        <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-500 align-middle border border-gray-200/50">
+                                        {patient.scheduledTime}
+                                        </span>
+                                    )}
+                                </h3>
+                                <p className="text-sm font-medium text-gray-500 mt-1.5">{patient.treatment}</p>
+                            </div>
+                            </div>
+                            
+                            {canStart && (
+                            <div className="flex items-center gap-2 text-blue-600">
+                                {isStarting ? (
+                                    <span className="text-[10px] font-semibold uppercase tracking-wider animate-pulse">Starting...</span>
+                                ) : (
+                                    <>
+                                        <span className="text-[10px] font-semibold uppercase tracking-wider">Start</span>
+                                        <Play size={20} fill="currentColor" />
+                                    </>
+                                )}
+                            </div>
+                            )}
+                        </div>
+                        <div className="mt-5 pt-3 border-t border-gray-50 flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2 text-gray-400 font-medium">
+                            <Clock size={14} />
+                            <span>{patient.waitTimeMinutes}m wait</span>
+                            </div>
+                            <span className={`px-2.5 py-1 rounded-md font-semibold text-[11px] uppercase tracking-wide ${patient.appointmentType === 'WALK_IN' ? 'bg-gray-100 text-gray-500' : 'bg-purple-50 text-purple-600'}`}>
+                            {patient.appointmentType === 'WALK_IN' ? 'Walk-in' : patient.scheduledTime || 'Appt'}
+                            </span>
+                        </div>
+                        </Card>
+                    );
+                    })
+                ) : (
+                    <div className="text-center py-12 px-6 bg-white/50 rounded-2xl border border-dashed border-gray-200 animate-fade-in">
+                    <p className="text-gray-400 font-medium text-sm">No patients waiting</p>
+                    </div>
+                )}
+                </div>
+            </section>
+
+            {/* COMPLETED TODAY SECTION - Phase D3.1 */}
+            <section>
+                <div className="flex items-center justify-between mb-6 px-2">
+                    <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest">
+                        Completed Today
+                    </h2>
+                    <span className="bg-green-50 text-green-600 font-bold py-0.5 px-2.5 rounded-full text-xs">
+                        {completedToday.length}
+                    </span>
+                </div>
+
+                <div className="space-y-3">
+                    {completedToday.length > 0 ? (
+                        completedToday.map((patient) => (
+                            <div 
+                                key={patient.id} 
+                                className="flex items-center justify-between p-4 bg-white/40 border border-gray-100 rounded-xl opacity-75 hover:opacity-100 transition-opacity"
+                            >
+                                <div className="flex items-center gap-4">
+                                    <div className="w-8 h-8 rounded-lg bg-green-50 text-green-600 flex items-center justify-center">
+                                        <CheckCircle2 size={16} />
+                                    </div>
+                                    <div>
+                                        <h4 className="text-sm font-semibold text-gray-900 leading-tight">{formatName(patient.name)}</h4>
+                                        <p className="text-[11px] text-gray-500 font-medium mt-0.5">{patient.treatment}</p>
+                                    </div>
+                                </div>
+                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Finished</span>
+                            </div>
+                        ))
+                    ) : (
+                        <div className="text-center py-6 border border-dashed border-gray-200 rounded-xl">
+                            <p className="text-[11px] font-bold text-gray-300 uppercase tracking-widest">No sessions completed</p>
+                        </div>
+                    )}
+                </div>
+            </section>
           </div>
 
         </div>
